@@ -467,7 +467,8 @@ function toast(msg, type) {
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
 async function callClaude(messages, maxTokens) {
-  const r = await fetch(ANTHROPIC_URL, {
+  // Route through our Cloudflare Worker proxy to avoid CORS issues
+  const r = await fetch(EBAY_PROXY + '/claude', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens || 800, messages })
