@@ -1240,7 +1240,7 @@ async function testEbayToken() {
   const el = document.getElementById('test-result');
   el.innerHTML = '<div style="font-size:10px;color:var(--text-dim)">Testing...</div>';
   try {
-    const resp = await ebayFetch('/sell/account/v1/fulfillment_policy?marketplace_id=EBAY_US', settings.userToken);
+    const resp = await ebayFetch('/sell/inventory/v1/inventory_item?limit=1', settings.userToken);
     if (resp.ok) {
       el.innerHTML = '<div style="font-size:10px;color:var(--green);background:rgba(52,214,121,0.1);border:1px solid rgba(52,214,121,0.3);border-radius:8px;padding:8px 12px">✓ Token valid — eBay connected</div>';
     } else {
