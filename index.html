@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Card Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+  :root {
+    --bg: #07090c;
+    --surface: #0d1117;
+    --card: #111820;
+    --border: #1a2332;
+    --border-hot: #2a3f58;
+    --accent: #f0c040;
+    --accent-dim: #9a7a28;
+    --green: #34d679;
+    --red: #ff4f4f;
+    --blue: #45b3ff;
+    --orange: #ff8c42;
+    --muted: #3d4f63;
+    --text: #dde6f0;
+    --text-dim: #6b7e94;
+    --pokemon: #ffcb05;
+    --sports: #45b3ff;
+    --ebay: #e53238;
+    --mono: 'DM Mono', monospace;
+    --serif: 'Playfair Display', serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--mono); max-width: 430px; margin: 0 auto; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+  input, select, textarea { outline: none; font-family: var(--mono); }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent) !important; }
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+  @keyframes fadein { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  .blink { animation: blink 1.4s infinite; }
+  .fadein { animation: fadein 0.25s ease; }
+
+  /* Layout */
+  .page { padding: 24px 16px 100px; }
+  .hidden { display: none !important; }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    transition: border-color 0.15s;
+  }
+  .card.clickable { cursor: pointer; }
+  .card.clickable:hover { border-color: var(--border-hot); }
+  .card.accent-border { border-color: rgba(240,192,64,0.4); }
+  .card.green-border { border-color: rgba(52,214,121,0.4); }
+  .card.red-border { border-color: rgba(255,79,79,0.4); }
+  .card.blue-border { border-color: rgba(69,179,255,0.3); }
+
+  /* Header */
+  .header { margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+  .header-left .label { font-size: 10px; color: var(--accent-dim); letter-spacing: 0.14em; margin-bottom: 2px; }
+  .header-left h1 { font-family: var(--serif); font-size: 21px; color: var(--text); line-height: 1.1; }
+  .header-left .sub { font-size: 10px; color: var(--text-dim); margin-top: 5px; }
+
+  /* Buttons */
+  .btn {
+    border: none; border-radius: 8px; cursor: pointer;
+    font-family: var(--mono); letter-spacing: 0.06em; font-weight: 600;
+    padding: 11px 20px; font-size: 12px;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: opacity 0.15s;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); color: #000; }
+  .btn.ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+  .btn.danger { background: rgba(255,79,79,0.1); color: var(--red); border: 1px solid rgba(255,79,79,0.3); }
+  .btn.ebay { background: rgba(229,50,56,0.1); color: var(--ebay); border: 1px solid rgba(229,50,56,0.3); }
+  .btn.blue { background: rgba(69,179,255,0.1); color: var(--blue); border: 1px solid rgba(69,179,255,0.3); }
+  .btn.green { background: rgba(52,214,121,0.1); color: var(--green); border: 1px solid rgba(52,214,121,0.3); }
+  .btn.small { padding: 7px 14px; font-size: 10px; }
+  .btn.full { width: 100%; justify-content: center; }
+
+  /* Tags */
+  .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 9px; font-family: var(--mono); letter-spacing: 0.07em; font-weight: 600;
+  }
+
+  /* Form fields */
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 9px; color: var(--text-dim); margin-bottom: 4px; letter-spacing: 0.06em; }
+  .field input, .field select, .field textarea {
+    width: 100%; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 12px; color: var(--text); font-size: 12px;
+    box-sizing: border-box;
+  }
+  .field textarea { resize: none; line-height: 1.6; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+  /* Stat rows */
+  .stat-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; }
+  .stat-row.small { margin-bottom: 5px; }
+  .stat-row .label { font-size: 11px; color: var(--text-dim); }
+  .stat-row.small .label { font-size: 9px; }
+  .stat-row .value { font-size: 13px; color: var(--text); font-weight: 600; }
+  .stat-row.small .value { font-size: 11px; }
+
+  /* Summary bar */
+  .summary-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; }
+  .summary-cell { text-align: center; }
+  .summary-cell .label { font-size: 8px; color: var(--muted); margin-bottom: 3px; }
+  .summary-cell .value { font-size: 13px; font-weight: 700; }
+
+  /* Filter pills */
+  .filters { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+  .filter-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill {
+    padding: 5px 12px; border-radius: 20px; cursor: pointer;
+    font-family: var(--mono); font-size: 9px; background: transparent;
+    transition: all 0.15s;
+  }
+
+  /* Nav */
+  nav {
+    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 430px; background: var(--bg);
+    border-top: 1px solid var(--border); display: flex; z-index: 100;
+  }
+  .nav-btn {
+    flex: 1; padding: 10px 0 8px; background: none; border: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    color: var(--muted); border-top: 2px solid transparent;
+    transition: color 0.15s; font-family: var(--mono);
+  }
+  .nav-btn.active { color: var(--accent); border-top-color: var(--accent); }
+  .nav-btn .icon { font-size: 14px; }
+  .nav-btn .nav-label { font-size: 8px; letter-spacing: 0.07em; }
+
+  /* Toast */
+  #toast-container {
+    position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 430px; z-index: 999; pointer-events: none;
+  }
+  .toast {
+    margin: 12px 12px 4px;
+    background: var(--card); border-radius: 10px;
+    padding: 10px 18px; font-size: 11px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    animation: fadein 0.2s ease;
+    pointer-events: all;
+  }
+
+  /* Progress bar */
+  .progress-track { background: var(--surface); border-radius: 8px; height: 6px; overflow: hidden; margin-bottom: 12px; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 8px; transition: width 0.4s; }
+
+  /* Qty controls */
+  .qty-btn {
+    width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); cursor: pointer; font-size: 14px;
+    display: flex; align-items: center; justify-content: center; font-family: var(--mono);
+  }
+
+  /* Spinner */
+  .spinner { display: inline-block; font-size: 12px; animation: blink 1s infinite; }
+
+  /* Config screen */
+  #config-screen {
+    position: fixed; inset: 0; background: var(--bg); z-index: 200;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  #config-screen .inner { max-width: 400px; width: 100%; }
+  #config-screen h2 { font-family: var(--serif); font-size: 24px; color: var(--text); margin-bottom: 8px; }
+  #config-screen p { font-size: 11px; color: var(--text-dim); margin-bottom: 24px; line-height: 1.8; }
+</style>
+</head>
+<body>
+
+<!-- Config screen shown on first load -->
+<div id="config-screen">
+  <div class="inner">
+    <div style="font-size:10px;color:var(--accent-dim);letter-spacing:0.14em;margin-bottom:8px">CARD TRACKER</div>
+    <h2>Connect Firebase</h2>
+    <p>Enter your Firebase Realtime Database URL to get started. Your data will sync across all your devices.</p>
+    <div class="field">
+      <label>FIREBASE DATABASE URL</label>
+      <input type="url" id="firebase-url-input" placeholder="https://your-project-default-rtdb.firebaseio.com">
+    </div>
+    <div class="field">
+      <label>EBAY PROXY URL</label>
+      <input type="url" id="proxy-url-input" value="https://ebay-companion-proxy.christopher-a-daggett.workers.dev" placeholder="https://your-worker.workers.dev">
+    </div>
+    <button class="btn primary full" onclick="saveConfig()" style="margin-top:8px">GET STARTED</button>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Main App -->
+<div id="app" class="hidden">
+
+  <!-- LOOKUP TAB -->
+  <div id="tab-lookup" class="page hidden">
+    <div class="header">
+      <div class="header-left">
+        <div class="label">CARD TRACKER</div>
+        <h1>Card Lookup</h1>
+        <div class="sub">Describe any card for AI pricing</div>
+      </div>
+    </div>
+    <div class="card accent-border">
+      <div class="field" style="margin-bottom:10px">
+        <label>CARD DESCRIPTION</label>
+        <textarea id="lookup-query" rows="3" placeholder="e.g. 2019 Panini Prizm RJ Barrett Emergent Silver #27 PSA 9&#10;or: 1999 Pokemon Base Set Charizard Holo 1st Edition BGS 8"></textarea>
+      </div>
+      <button class="btn primary full" id="lookup-btn" onclick="doLookup()">GET PRICING</button>
+    </div>
+    <div id="lookup-loading" class="card hidden" style="text-align:center;padding:32px 16px">
+      <div style="font-size:12px;color:var(--accent);margin-bottom:8px">RESEARCHING MARKET...</div>
+      <div style="font-size:10px;color:var(--text-dim)">Checking recent eBay sales</div>
+      <div class="blink" style="width:6px;height:6px;border-radius:50%;background:var(--accent);margin:16px auto 0"></div>
+    </div>
+    <div id="lookup-result" class="hidden"></div>
+  </div>
+
+  <!-- BULK IMPORT TAB -->
+  <div id="tab-bulk" class="page hidden">
+    <div class="header">
+      <div class="header-left">
+        <div class="label">CARD TRACKER</div>
+        <h1>Bulk Import</h1>
+        <div class="sub">Paste list, get instant pricing</div>
+      </div>
+    </div>
+    <div id="bulk-idle">
+      <div class="card">
+        <div class="field">
+          <label>CARD LIST — ONE PER LINE</label>
+          <textarea id="bulk-text" rows="12" placeholder="Charizard Holo 1st Ed Base Set PSA 7&#10;Blastoise Holo Base Set Unlimited raw&#10;RJ Barrett 2019 Prizm Emergent Silver PSA 9&#10;Mahomes 2017 Prizm RC raw x3&#10;LeBron 2003 Topps Chrome BGS 9&#10;Pikachu Illustrator CGC 6"></textarea>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
+          <span id="bulk-count" style="font-size:10px;color:var(--muted)">0 cards</span>
+          <button class="btn primary" onclick="doBulkImport()">PRICE AND IMPORT</button>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-size:9px;color:var(--accent-dim);margin-bottom:8px">FORMAT TIPS</div>
+        <div style="font-size:10px;color:var(--text-dim);line-height:2">
+          Include grade: PSA 9, BGS 8.5, CGC 6<br>
+          For raw cards write "raw" or omit grade<br>
+          Quantities: Mahomes Prizm raw x3<br>
+          Be specific: year, set, card number
+        </div>
+      </div>
+    </div>
+    <div id="bulk-loading" class="card hidden" style="text-align:center;padding:32px 16px">
+      <div style="font-size:12px;color:var(--accent);margin-bottom:16px">PRICING YOUR CARDS...</div>
+      <div class="progress-track"><div class="progress-fill" id="bulk-progress" style="width:0%"></div></div>
+      <div id="bulk-progress-text" style="font-size:10px;color:var(--text-dim)">0 of 0 cards</div>
+    </div>
+    <div id="bulk-preview" class="hidden"></div>
+  </div>
+
+  <!-- COLLECTION TAB -->
+  <div id="tab-collection" class="page hidden">
+    <div class="header">
+      <div class="header-left">
+        <div class="label">CARD TRACKER</div>
+        <h1 id="col-title">Collection</h1>
+        <div class="sub" id="col-sub">Loading...</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn ebay small" onclick="syncEbay()"><span id="sync-spinner"></span>Sync eBay</button>
+        <button class="btn primary small" onclick="showAddForm()">+ Add</button>
+      </div>
+    </div>
+    <div class="card" id="col-summary" style="margin-bottom:14px">
+      <div class="summary-grid">
+        <div class="summary-cell"><div class="label">COST</div><div class="value" id="sum-cost" style="color:var(--text)">$0</div></div>
+        <div class="summary-cell"><div class="label">VALUE</div><div class="value" id="sum-value" style="color:var(--accent)">$0</div></div>
+        <div class="summary-cell"><div class="label">GAIN</div><div class="value" id="sum-gain">0%</div></div>
+      </div>
+    </div>
+    <div class="filters">
+      <div class="filter-row" id="cat-filters"></div>
+      <div class="filter-row" id="graded-filters"></div>
+    </div>
+    <div id="add-form" class="card accent-border hidden" style="margin-bottom:14px"></div>
+    <div id="col-detail" class="hidden"></div>
+    <div id="col-list"></div>
+  </div>
+
+  <!-- ALERTS TAB -->
+  <div id="tab-alerts" class="page hidden">
+    <div class="header">
+      <div class="header-left">
+        <div class="label">CARD TRACKER</div>
+        <h1>Price Alerts</h1>
+        <div class="sub">Listings vs. market value</div>
+      </div>
+      <button class="btn ebay small" onclick="syncAlerts()">Refresh</button>
+    </div>
+    <div id="alerts-list"></div>
+  </div>
+
+  <!-- PROFIT TAB -->
+  <div id="tab-profit" class="page hidden">
+    <div class="header">
+      <div class="header-left">
+        <div class="label">CARD TRACKER</div>
+        <h1>Profit & Tax</h1>
+        <div class="sub">Realized gains · Tax reporting</div>
+      </div>
+      <button class="btn ghost small" onclick="exportCSV()">CSV</button>
+    </div>
+    <div id="profit-summary"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:9px;color:var(--accent-dim)" id="sales-count">SALES (0)</div>
+      <button class="btn primary small" onclick="showSaleForm()">+ Log Sale</button>
+    </div>
+    <div id="sale-form" class="card accent-border hidden" style="margin-bottom:14px"></div>
+    <div id="sales-list"></div>
+  </div>
+
+  <!-- SETTINGS TAB -->
+  <div id="tab-settings" class="page hidden">
+    <div class="header">
+      <div class="header-left">
+        <div class="label">CARD TRACKER</div>
+        <h1>Settings</h1>
+        <div class="sub">eBay integration</div>
+      </div>
+    </div>
+    <div id="settings-content"></div>
+  </div>
+
+</div><!-- end #app -->
+
+<!-- NAV -->
+<nav id="main-nav" class="hidden">
+  <button class="nav-btn active" data-tab="lookup" onclick="switchTab('lookup')">
+    <span class="icon">◈</span><span class="nav-label">LOOKUP</span>
+  </button>
+  <button class="nav-btn" data-tab="bulk" onclick="switchTab('bulk')">
+    <span class="icon">≡</span><span class="nav-label">IMPORT</span>
+  </button>
+  <button class="nav-btn" data-tab="collection" onclick="switchTab('collection')">
+    <span class="icon">⬡</span><span class="nav-label">COLLECT</span>
+  </button>
+  <button class="nav-btn" data-tab="alerts" onclick="switchTab('alerts')">
+    <span class="icon">◉</span><span class="nav-label">ALERTS</span>
+  </button>
+  <button class="nav-btn" data-tab="profit" onclick="switchTab('profit')">
+    <span class="icon">▲</span><span class="nav-label">PROFIT</span>
+  </button>
+  <button class="nav-btn" data-tab="settings" onclick="switchTab('settings')">
+    <span class="icon">⚙</span><span class="nav-label">SETTINGS</span>
+  </button>
+</nav>
+
+<script>
+// ─── Config ───────────────────────────────────────────────────────────────
+let FIREBASE_URL = '';
+let EBAY_PROXY = '';
+let db = null;
+let currentTab = 'lookup';
+let catFilter = 'all';
+let gradedFilter = 'all';
+let colDetailId = null;
+
+function saveConfig() {
+  const fbUrl = document.getElementById('firebase-url-input').value.trim();
+  const proxyUrl = document.getElementById('proxy-url-input').value.trim();
+  if (!fbUrl) { toast('Enter your Firebase URL', 'warn'); return; }
+  localStorage.setItem('ct_firebase_url', fbUrl);
+  localStorage.setItem('ct_proxy_url', proxyUrl);
+  initApp(fbUrl, proxyUrl);
+}
+
+function loadConfig() {
+  const fbUrl = localStorage.getItem('ct_firebase_url');
+  const proxyUrl = localStorage.getItem('ct_proxy_url') || 'https://ebay-companion-proxy.christopher-a-daggett.workers.dev';
+  if (fbUrl) { initApp(fbUrl, proxyUrl); return true; }
+  return false;
+}
+
+function initApp(fbUrl, proxyUrl) {
+  FIREBASE_URL = fbUrl;
+  EBAY_PROXY = proxyUrl;
+
+  // Init Firebase
+  try {
+    if (!firebase.apps.length) {
+      firebase.initializeApp({ databaseURL: fbUrl });
+    }
+    db = firebase.database();
+  } catch(e) {
+    toast('Firebase error: ' + e.message, 'error');
+    return;
+  }
+
+  document.getElementById('config-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('main-nav').classList.remove('hidden');
+  switchTab('lookup');
+  renderSettings();
+}
+
+// ─── Firebase helpers ─────────────────────────────────────────────────────
+function fbRef(path) { return db.ref(path); }
+
+async function fbGet(path) {
+  const snap = await fbRef(path).once('value');
+  return snap.val();
+}
+
+async function fbSet(path, val) {
+  await fbRef(path).set(val);
+}
+
+async function fbPush(path, val) {
+  const ref = await fbRef(path).push(val);
+  return ref.key;
+}
+
+async function fbRemove(path) {
+  await fbRef(path).remove();
+}
+
+function fbListen(path, cb) {
+  fbRef(path).on('value', snap => cb(snap.val()));
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+const uid = () => Math.random().toString(36).slice(2, 9);
+const today = () => new Date().toISOString().slice(0, 10);
+const fmt$ = n => '$' + Number(n || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+const fmtPct = n => (n >= 0 ? '+' : '') + Number(n).toFixed(1) + '%';
+const gainPct = (c, v) => c ? ((v - c) / c) * 100 : 0;
+const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+function tag(color, text) {
+  return '<span class="tag" style="background:' + color + '1a;color:' + color + ';border:1px solid ' + color + '33">' + esc(text) + '</span>';
+}
+
+function toast(msg, type) {
+  type = type || 'success';
+  const color = type === 'error' ? 'var(--red)' : type === 'warn' ? 'var(--orange)' : 'var(--green)';
+  const icon = type === 'error' ? '⚠ ' : type === 'warn' ? '⚡ ' : '✓ ';
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.style.color = color;
+  el.style.border = '1px solid ' + color.replace(')', ', 0.3)').replace('var(', 'rgba(');
+  el.textContent = icon + msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+// ─── API calls ────────────────────────────────────────────────────────────
+const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+
+async function callClaude(messages, maxTokens) {
+  const r = await fetch(ANTHROPIC_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens || 800, messages })
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error('API ' + r.status + ': ' + (d.error && d.error.message || 'error'));
+  return d.content.map(b => b.text || '').join('');
+}
+
+async function lookupCard(desc) {
+  const msg = 'You are a trading card expert. For this card: ' + desc
+    + ' Return ONLY valid JSON no markdown: {"itemName":"name","category":"pokemon or sports or other",'
+    + '"isGraded":false,"gradingCompany":null,"grade":null,'
+    + '"priceRange":{"low":0,"mid":0,"high":0},"suggestedBIN":0,'
+    + '"gradingRecommended":false,"gradingUpliftEst":"","listingTitle":"title",'
+    + '"listingDescription":"description","keywords":["k1","k2"],"confidence":80}';
+  const text = await callClaude([{role:'user',content:msg}], 600);
+  return JSON.parse(text.replace(/```json|```/g,'').trim());
+}
+
+async function bulkLookup(lines) {
+  const cardList = lines.map((l,i) => (i+1) + '. ' + l).join('\n');
+  const msg = 'Expert card pricer. For each card return a JSON array of objects with: '
+    + 'itemName, category (pokemon/sports/other), isGraded (bool), gradingCompany (string or null), '
+    + 'grade (string or null), qty (parse x2/x3 suffix, default 1), '
+    + 'priceRange {low,mid,high} (numbers), gradingRecommended (bool). '
+    + 'Return ONLY the JSON array, no markdown, no backticks.\n\nCards:\n' + cardList;
+  const text = await callClaude([{role:'user',content:msg}], 1500);
+  return JSON.parse(text.replace(/```json|```/g,'').trim());
+}
+
+function ebayFetch(path, token, method, body) {
+  const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
+  const base = settings.sandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
+  const targetUrl = base + path;
+  return fetch(EBAY_PROXY + '/proxy?url=' + encodeURIComponent(targetUrl), {
+    method: method || 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token,
+      'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US'
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+}
+
+// ─── Navigation ───────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.remove('hidden');
+  document.querySelector('[data-tab="' + tab + '"]').classList.add('active');
+  currentTab = tab;
+  if (tab === 'collection') renderCollection();
+  if (tab === 'alerts') renderAlerts();
+  if (tab === 'profit') renderProfit();
+  if (tab === 'settings') renderSettings();
+}
+
+// ─── LOOKUP ───────────────────────────────────────────────────────────────
+let lookupResult = null;
+
+async function doLookup() {
+  const query = document.getElementById('lookup-query').value.trim();
+  if (!query) return;
+  document.getElementById('lookup-btn').disabled = true;
+  document.getElementById('lookup-btn').textContent = 'LOOKING UP...';
+  document.getElementById('lookup-loading').classList.remove('hidden');
+  document.getElementById('lookup-result').classList.add('hidden');
+  lookupResult = null;
+
+  try {
+    lookupResult = await lookupCard(query);
+    renderLookupResult(lookupResult);
+  } catch(e) {
+    toast('Lookup failed: ' + e.message, 'error');
+  }
+  document.getElementById('lookup-btn').disabled = false;
+  document.getElementById('lookup-btn').textContent = 'GET PRICING';
+  document.getElementById('lookup-loading').classList.add('hidden');
+}
+
+function renderLookupResult(r) {
+  const catColor = r.category === 'pokemon' ? 'var(--pokemon)' : 'var(--sports)';
+  const el = document.getElementById('lookup-result');
+  el.innerHTML = `
+    <div class="card fadein">
+      <div style="font-family:var(--serif);font-size:15px;color:var(--text);margin-bottom:8px;line-height:1.3">${esc(r.itemName)}</div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        ${tag(catColor, (r.category||'other').toUpperCase())}
+        ${r.isGraded ? tag('var(--green)', r.grade||'GRADED') : tag('var(--muted)', 'RAW')}
+        ${r.gradingCompany ? tag('var(--blue)', r.gradingCompany) : ''}
+      </div>
+    </div>
+    <div class="card fadein">
+      <div style="font-size:9px;color:var(--accent-dim);margin-bottom:12px">MARKET VALUATION</div>
+      <div class="grid-3" style="margin-bottom:12px">
+        ${[['LOW',r.priceRange&&r.priceRange.low,'var(--red)'],['MID',r.priceRange&&r.priceRange.mid,'var(--accent)'],['HIGH',r.priceRange&&r.priceRange.high,'var(--green)']].map(([l,v,c])=>`
+          <div style="background:var(--surface);border-radius:8px;padding:10px 8px;text-align:center">
+            <div style="font-size:8px;color:var(--muted);margin-bottom:4px">${l}</div>
+            <div style="font-size:13px;color:${c};font-weight:700">${fmt$(v)}</div>
+          </div>`).join('')}
+      </div>
+      ${r.gradingRecommended ? `<div style="background:rgba(69,179,255,0.1);border:1px solid rgba(69,179,255,0.3);border-radius:8px;padding:8px 12px;font-size:10px;color:var(--blue)">GRADE FIRST · ${esc(r.gradingUpliftEst)}</div>` : ''}
+    </div>
+    ${r.keywords&&r.keywords.length ? `<div class="card fadein"><div style="font-size:9px;color:var(--accent-dim);margin-bottom:8px">KEYWORDS</div><div style="display:flex;flex-wrap:wrap;gap:6px">${r.keywords.map(k=>tag('var(--accent-dim)',k)).join('')}</div></div>` : ''}
+    <div class="card accent-border fadein">
+      <div style="font-size:9px;color:var(--accent-dim);margin-bottom:12px">SAVE TO COLLECTION</div>
+      <div class="grid-2">
+        <div class="field"><label>COST BASIS $</label><input type="number" id="lr-cost" placeholder="0.00"></div>
+        <div class="field"><label>QUANTITY</label><input type="number" id="lr-qty" value="1"></div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn primary" style="flex:1" onclick="saveLookupResult()">SAVE TO COLLECTION</button>
+        <button class="btn ghost small" onclick="resetLookup()">↩</button>
+      </div>
+    </div>`;
+  el.classList.remove('hidden');
+}
+
+async function saveLookupResult() {
+  if (!lookupResult) return;
+  const cost = parseFloat(document.getElementById('lr-cost').value) || 0;
+  const qty = parseInt(document.getElementById('lr-qty').value) || 1;
+  const item = {
+    id: uid(), name: lookupResult.itemName, category: lookupResult.category || 'other',
+    graded: !!lookupResult.isGraded, grade: lookupResult.grade || null,
+    gradingCo: lookupResult.gradingCompany || null,
+    costBasis: cost, currentValue: lookupResult.priceRange && lookupResult.priceRange.mid || 0,
+    qty, dateAcquired: today(), status: 'holding',
+    ebayListingId: null, ebayListingPrice: null, notes: ''
+  };
+  try {
+    await fbPush('collection', item);
+    toast('Saved to collection!', 'success');
+    resetLookup();
+  } catch(e) { toast('Save failed: ' + e.message, 'error'); }
+}
+
+function resetLookup() {
+  document.getElementById('lookup-query').value = '';
+  document.getElementById('lookup-result').classList.add('hidden');
+  lookupResult = null;
+}
+
+// ─── BULK IMPORT ─────────────────────────────────────────────────────────
+let bulkPreviews = [];
+let bulkCosts = {};
+
+document.getElementById('bulk-text').addEventListener('input', function() {
+  const n = this.value.split('\n').filter(l => l.trim()).length;
+  document.getElementById('bulk-count').textContent = n + ' card' + (n!==1?'s':'');
+});
+
+async function doBulkImport() {
+  const text = document.getElementById('bulk-text').value;
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return;
+
+  document.getElementById('bulk-idle').classList.add('hidden');
+  document.getElementById('bulk-loading').classList.remove('hidden');
+  document.getElementById('bulk-preview').classList.add('hidden');
+
+  bulkPreviews = [];
+  bulkCosts = {};
+  const BATCH = 8;
+  let done = 0;
+
+  for (let i = 0; i < lines.length; i += BATCH) {
+    const batch = lines.slice(i, i + BATCH);
+    try {
+      const results = await bulkLookup(batch);
+      results.forEach((r, j) => bulkPreviews.push({...r, _line: batch[j], _idx: i+j}));
+    } catch(e) {
+      batch.forEach((line, j) => bulkPreviews.push({
+        _line: line, _idx: i+j, _error: e.message,
+        itemName: line, category: 'other', isGraded: false,
+        gradingCompany: null, grade: null, qty: 1,
+        priceRange: {low:0,mid:0,high:0}, gradingRecommended: false
+      }));
+    }
+    done = Math.min(i + BATCH, lines.length);
+    const pct = Math.round((done / lines.length) * 100);
+    document.getElementById('bulk-progress').style.width = pct + '%';
+    document.getElementById('bulk-progress-text').textContent = done + ' of ' + lines.length + ' cards';
+  }
+
+  document.getElementById('bulk-loading').classList.add('hidden');
+  renderBulkPreview();
+}
+
+function renderBulkPreview() {
+  const el = document.getElementById('bulk-preview');
+  const good = bulkPreviews.filter(p => !p._error);
+  let html = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-size:10px;color:var(--text-dim)">${good.length} cards ready · add cost below</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost small" onclick="resetBulk()">Redo</button>
+        <button class="btn primary small" onclick="saveAllBulk()">SAVE ALL</button>
+      </div>
+    </div>`;
+
+  bulkPreviews.forEach(item => {
+    if (item._error) {
+      html += `<div class="card red-border"><div style="font-size:10px;color:var(--red)">⚠ Failed: ${esc(item._line)}</div></div>`;
+      return;
+    }
+    const catColor = item.category === 'pokemon' ? 'var(--pokemon)' : 'var(--sports)';
+    html += `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div style="flex:1;margin-right:10px">
+            <div style="font-size:11px;color:var(--text);margin-bottom:5px;line-height:1.4">${esc(item.itemName)}</div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap">
+              ${tag(catColor, item.category==='pokemon'?'PKM':'SPT')}
+              ${item.isGraded ? tag('var(--green)', item.grade||'GRADED') : tag('var(--muted)', 'RAW')}
+              ${(item.qty||1)>1 ? tag('var(--accent-dim)', 'x'+(item.qty||1)) : ''}
+            </div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:14px;color:var(--accent);font-weight:700">${fmt$(item.priceRange&&item.priceRange.mid)}</div>
+            <div style="font-size:9px;color:var(--muted)">${fmt$(item.priceRange&&item.priceRange.low)} - ${fmt$(item.priceRange&&item.priceRange.high)}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:10px;color:var(--text-dim);white-space:nowrap">Cost $</span>
+          <input type="number" placeholder="0.00" value="${bulkCosts[item._idx]||''}"
+            oninput="bulkCosts[${item._idx}]=this.value"
+            style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:12px">
+        </div>
+      </div>`;
+  });
+
+  html += `<button class="btn primary full" style="margin-top:8px" onclick="saveAllBulk()">SAVE ALL TO COLLECTION</button>`;
+  el.innerHTML = html;
+  el.classList.remove('hidden');
+}
+
+async function saveAllBulk() {
+  const good = bulkPreviews.filter(p => !p._error);
+  let saved = 0;
+  for (const r of good) {
+    const item = {
+      id: uid(), name: r.itemName, category: r.category || 'other',
+      graded: !!r.isGraded, grade: r.grade || null, gradingCo: r.gradingCompany || null,
+      costBasis: parseFloat(bulkCosts[r._idx] || 0) || 0,
+      currentValue: r.priceRange && r.priceRange.mid || 0,
+      qty: r.qty || 1, dateAcquired: today(), status: 'holding',
+      ebayListingId: null, ebayListingPrice: null, notes: ''
+    };
+    await fbPush('collection', item);
+    saved++;
+  }
+  toast('Added ' + saved + ' cards to collection', 'success');
+  resetBulk();
+}
+
+function resetBulk() {
+  document.getElementById('bulk-text').value = '';
+  document.getElementById('bulk-count').textContent = '0 cards';
+  document.getElementById('bulk-idle').classList.remove('hidden');
+  document.getElementById('bulk-loading').classList.add('hidden');
+  document.getElementById('bulk-preview').classList.add('hidden');
+  bulkPreviews = [];
+  bulkCosts = {};
+}
+
+// ─── COLLECTION ───────────────────────────────────────────────────────────
+let collectionData = {};
+
+function startCollectionListener() {
+  fbListen('collection', data => {
+    collectionData = data || {};
+    if (currentTab === 'collection') renderCollection();
+  });
+}
+
+function getFilteredItems() {
+  const items = Object.entries(collectionData).map(([k, v]) => ({...v, _key: k}));
+  return items.filter(i => {
+    if (catFilter !== 'all' && i.category !== catFilter) return false;
+    if (gradedFilter === 'graded' && !i.graded) return false;
+    if (gradedFilter === 'raw' && i.graded) return false;
+    return true;
+  });
+}
+
+function renderCollection() {
+  // If showing detail view
+  if (colDetailId) { renderColDetail(colDetailId); return; }
+
+  const items = getFilteredItems();
+  const totalCost = items.reduce((a,b) => a + (b.costBasis||0)*(b.qty||1), 0);
+  const totalVal = items.reduce((a,b) => a + (b.currentValue||0)*(b.qty||1), 0);
+  const g = gainPct(totalCost, totalVal);
+
+  document.getElementById('col-sub').textContent = items.length + ' items · ' + fmt$(totalVal) + ' value';
+  document.getElementById('sum-cost').textContent = fmt$(totalCost);
+  document.getElementById('sum-value').textContent = fmt$(totalVal);
+  const gainEl = document.getElementById('sum-gain');
+  gainEl.textContent = fmtPct(g);
+  gainEl.style.color = totalVal >= totalCost ? 'var(--green)' : 'var(--red)';
+
+  // Filters
+  document.getElementById('cat-filters').innerHTML = [['all','All'],['pokemon','Pokemon'],['sports','Sports'],['other','Other']].map(([v,l]) =>
+    `<button class="pill" onclick="setCatFilter('${v}')" style="border:1px solid ${catFilter===v?'var(--accent)':'var(--border)'};color:${catFilter===v?'var(--accent)':'var(--text-dim)'};background:${catFilter===v?'rgba(240,192,64,0.1)':'transparent'}">${l}</button>`
+  ).join('');
+
+  document.getElementById('graded-filters').innerHTML = [['all','All'],['graded','Graded'],['raw','Raw']].map(([v,l]) =>
+    `<button class="pill" onclick="setGradedFilter('${v}')" style="border:1px solid ${gradedFilter===v?'var(--blue)':'var(--border)'};color:${gradedFilter===v?'var(--blue)':'var(--text-dim)'};background:${gradedFilter===v?'rgba(69,179,255,0.1)':'transparent'}">${l}</button>`
+  ).join('');
+
+  // List
+  if (!items.length) {
+    document.getElementById('col-list').innerHTML = '<div style="text-align:center;padding:40px;font-size:11px;color:var(--muted)">No items</div>';
+    return;
+  }
+  document.getElementById('col-list').innerHTML = items.map(item => {
+    const g = gainPct(item.costBasis, item.currentValue);
+    const catColor = item.category === 'pokemon' ? 'var(--pokemon)' : 'var(--sports)';
+    return `
+      <div class="card clickable" onclick="showColDetail('${item._key}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="flex:1;margin-right:12px">
+            <div style="font-size:11px;color:var(--text);margin-bottom:6px;line-height:1.4">${esc(item.name)}</div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap">
+              ${tag(catColor, item.category==='pokemon'?'PKM':'SPT')}
+              ${item.graded ? tag('var(--green)', item.grade||'GRADED') : tag('var(--muted)', 'RAW')}
+              ${item.ebayListingId ? tag('var(--orange)', 'LISTED') : ''}
+            </div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:14px;color:var(--accent);font-weight:700">${fmt$(item.currentValue)}</div>
+            <div style="font-size:10px;color:${g>=0?'var(--green)':'var(--red)'}">${fmtPct(g)}</div>
+            <div style="font-size:9px;color:var(--muted)">x${item.qty||1}</div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function setCatFilter(v) { catFilter = v; renderCollection(); }
+function setGradedFilter(v) { gradedFilter = v; renderCollection(); }
+
+function showColDetail(key) {
+  colDetailId = key;
+  document.getElementById('col-list').classList.add('hidden');
+  document.getElementById('col-summary').classList.add('hidden');
+  document.querySelectorAll('.filters').forEach(f => f.classList.add('hidden'));
+  document.querySelector('.header .btn')&&null;
+  renderColDetail(key);
+}
+
+function hideColDetail() {
+  colDetailId = null;
+  document.getElementById('col-detail').classList.add('hidden');
+  document.getElementById('col-detail').innerHTML = '';
+  document.getElementById('col-list').classList.remove('hidden');
+  document.getElementById('col-summary').classList.remove('hidden');
+  document.querySelectorAll('.filters').forEach(f => f.classList.remove('hidden'));
+  renderCollection();
+}
+
+function renderColDetail(key) {
+  const item = collectionData[key];
+  if (!item) { hideColDetail(); return; }
+  const g = gainPct(item.costBasis, item.currentValue);
+  const catColor = item.category === 'pokemon' ? 'var(--pokemon)' : 'var(--sports)';
+
+  document.getElementById('col-detail').innerHTML = `
+    <button class="btn ghost small" onclick="hideColDetail()" style="margin-bottom:16px">← Back</button>
+    <div style="font-family:var(--serif);font-size:18px;color:var(--text);margin-bottom:8px;line-height:1.3">${esc(item.name)}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px">
+      ${tag(catColor, item.category.toUpperCase())}
+      ${item.graded ? tag('var(--green)', item.grade||'GRADED') : tag('var(--muted)', 'RAW')}
+      ${item.gradingCo ? tag('var(--blue)', item.gradingCo) : ''}
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:9px;color:var(--accent-dim)">INVENTORY</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="qty-btn" onclick="adjustQty('${key}', -1)">−</button>
+          <span style="font-size:18px;color:var(--accent);font-weight:700;min-width:24px;text-align:center">${item.qty||1}</span>
+          <button class="qty-btn" onclick="adjustQty('${key}', 1)">+</button>
+        </div>
+      </div>
+      <div class="stat-row"><span class="label">Cost Basis</span><span class="value">${fmt$(item.costBasis)}</span></div>
+      <div class="stat-row"><span class="label">Current Value</span><span class="value" style="color:var(--accent)">${fmt$(item.currentValue)}</span></div>
+      <div class="stat-row"><span class="label">Unrealized Gain</span><span class="value" style="color:${g>=0?'var(--green)':'var(--red)'}">${fmt$((item.currentValue-item.costBasis)*(item.qty||1))} (${fmtPct(g)})</span></div>
+      <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px">
+        <div class="stat-row small"><span class="label">Acquired</span><span class="value">${esc(item.dateAcquired||'')}</span></div>
+        ${item.ebayListingId ? `<div class="stat-row small"><span class="label">eBay Listing</span><span class="value" style="color:var(--orange)">${esc(item.ebayListingId)}</span></div>` : ''}
+        ${item.ebayListingPrice ? `<div class="stat-row small"><span class="label">Listed At</span><span class="value" style="color:var(--orange)">${fmt$(item.ebayListingPrice)}</span></div>` : ''}
+      </div>
+    </div>
+    ${item.notes ? `<div class="card"><div style="font-size:11px;color:var(--text-dim);line-height:1.6">${esc(item.notes)}</div></div>` : ''}
+    <button class="btn danger small" onclick="deleteItem('${key}')" style="margin-top:4px">Remove from Collection</button>`;
+
+  document.getElementById('col-detail').classList.remove('hidden');
+}
+
+async function adjustQty(key, delta) {
+  const item = collectionData[key];
+  if (!item) return;
+  const newQty = Math.max(0, (item.qty || 1) + delta);
+  await fbRef('collection/' + key + '/qty').set(newQty);
+}
+
+async function deleteItem(key) {
+  if (!confirm('Remove this item from your collection?')) return;
+  await fbRemove('collection/' + key);
+  hideColDetail();
+  toast('Removed', 'success');
+}
+
+function showAddForm() {
+  const el = document.getElementById('add-form');
+  el.innerHTML = `
+    <div style="font-size:9px;color:var(--accent-dim);margin-bottom:12px">ADD ITEM</div>
+    <div class="field"><label>CARD NAME</label><input type="text" id="af-name" placeholder="Charizard Holo 1st Ed PSA 7"></div>
+    <div class="grid-3">
+      <div class="field"><label>COST $</label><input type="number" id="af-cost"></div>
+      <div class="field"><label>VALUE $</label><input type="number" id="af-val"></div>
+      <div class="field"><label>QTY</label><input type="number" id="af-qty" value="1"></div>
+    </div>
+    <div class="grid-2">
+      <div class="field"><label>CATEGORY</label>
+        <select id="af-cat"><option value="pokemon">Pokemon</option><option value="sports">Sports</option><option value="other">Other</option></select>
+      </div>
+      <div class="field"><label>GRADED?</label>
+        <select id="af-graded" onchange="toggleGradeFields()"><option value="false">Raw</option><option value="true">Graded</option></select>
+      </div>
+    </div>
+    <div id="af-grade-fields" class="grid-2 hidden">
+      <div class="field"><label>GRADE</label><input type="text" id="af-grade" placeholder="PSA 9"></div>
+      <div class="field"><label>GRADING CO.</label><input type="text" id="af-gradco" placeholder="PSA"></div>
+    </div>
+    <div class="field"><label>NOTES</label><input type="text" id="af-notes"></div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn primary small" style="flex:1" onclick="saveAddForm()">SAVE</button>
+      <button class="btn ghost small" onclick="hideAddForm()">Cancel</button>
+    </div>`;
+  el.classList.remove('hidden');
+}
+
+function toggleGradeFields() {
+  const graded = document.getElementById('af-graded').value === 'true';
+  document.getElementById('af-grade-fields').classList.toggle('hidden', !graded);
+}
+
+function hideAddForm() {
+  document.getElementById('add-form').classList.add('hidden');
+}
+
+async function saveAddForm() {
+  const name = document.getElementById('af-name').value.trim();
+  if (!name) { toast('Enter a card name', 'warn'); return; }
+  const graded = document.getElementById('af-graded').value === 'true';
+  const item = {
+    id: uid(), name,
+    category: document.getElementById('af-cat').value,
+    graded,
+    grade: graded ? document.getElementById('af-grade').value.trim() || null : null,
+    gradingCo: graded ? document.getElementById('af-gradco').value.trim() || null : null,
+    costBasis: parseFloat(document.getElementById('af-cost').value) || 0,
+    currentValue: parseFloat(document.getElementById('af-val').value) || 0,
+    qty: parseInt(document.getElementById('af-qty').value) || 1,
+    dateAcquired: today(), status: 'holding',
+    ebayListingId: null, ebayListingPrice: null,
+    notes: document.getElementById('af-notes').value.trim()
+  };
+  await fbPush('collection', item);
+  hideAddForm();
+  toast('Item added', 'success');
+}
+
+async function syncEbay() {
+  const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
+  if (!settings.userToken) { toast('Add eBay token in Settings first', 'warn'); switchTab('settings'); return; }
+  document.getElementById('sync-spinner').innerHTML = '<span class="spinner">⟳</span> ';
+  try {
+    const resp = await ebayFetch('/sell/inventory/v1/offer?limit=100', settings.userToken);
+    if (!resp.ok) throw new Error('eBay API ' + resp.status);
+    const data = await resp.json();
+    const offers = data.offers || [];
+    for (const [key, item] of Object.entries(collectionData)) {
+      const match = offers.find(o => o.sku === 'EBC-' + (item.id||key));
+      if (match && match.pricingSummary && match.pricingSummary.price) {
+        await fbRef('collection/' + key).update({
+          ebayListingPrice: parseFloat(match.pricingSummary.price.value),
+          ebayListingId: match.listingId || item.ebayListingId,
+          status: 'listed'
+        });
+      }
+    }
+    toast('Synced ' + offers.length + ' listing' + (offers.length!==1?'s':''), 'success');
+  } catch(e) { toast('Sync failed: ' + e.message, 'error'); }
+  document.getElementById('sync-spinner').innerHTML = '';
+}
+
+// ─── ALERTS ───────────────────────────────────────────────────────────────
+function renderAlerts() {
+  const items = Object.values(collectionData);
+  const alerts = items.filter(i =>
+    i.ebayListingId && i.ebayListingPrice && i.currentValue &&
+    ((i.currentValue - i.ebayListingPrice) / i.currentValue) * 100 > 10
+  );
+  const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
+
+  let html = '';
+  if (!settings.userToken) {
+    html += '<div class="card blue-border"><div style="font-size:10px;color:var(--blue)">Add eBay token in Settings to sync listings</div></div>';
+  }
+
+  if (alerts.length) {
+    html += '<div style="font-size:9px;color:var(--red);letter-spacing:0.1em;margin-bottom:10px">LISTINGS BELOW MARKET</div>';
+    alerts.forEach(item => {
+      const drop = ((item.currentValue - item.ebayListingPrice) / item.currentValue) * 100;
+      html += `
+        <div class="card red-border">
+          <div style="display:flex;justify-content:space-between;margin-bottom:10px">
+            <div style="font-size:11px;color:var(--text);flex:1;margin-right:10px;line-height:1.4">${esc(item.name)}</div>
+            <div style="font-size:14px;color:var(--red);font-weight:700">-${drop.toFixed(1)}%</div>
+          </div>
+          <div class="grid-2">
+            <div style="background:var(--surface);border-radius:8px;padding:10px">
+              <div style="font-size:8px;color:var(--muted);margin-bottom:4px">LISTED AT</div>
+              <div style="font-size:14px;color:var(--red);font-weight:700">${fmt$(item.ebayListingPrice)}</div>
+            </div>
+            <div style="background:var(--surface);border-radius:8px;padding:10px">
+              <div style="font-size:8px;color:var(--muted);margin-bottom:4px">MARKET</div>
+              <div style="font-size:14px;color:var(--green);font-weight:700">${fmt$(item.currentValue)}</div>
+            </div>
+          </div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:8px">Consider updating your listing price</div>
+        </div>`;
+    });
+  } else if (settings.userToken) {
+    html += '<div class="card green-border"><div style="font-size:11px;color:var(--green)">✓ All listings within 10% of market value</div></div>';
+  }
+
+  document.getElementById('alerts-list').innerHTML = html || '<div style="font-size:11px;color:var(--muted);padding:20px 0">No active listings to monitor</div>';
+}
+
+async function syncAlerts() {
+  await syncEbay();
+  renderAlerts();
+}
+
+// ─── PROFIT ───────────────────────────────────────────────────────────────
+let salesData = {};
+
+function startSalesListener() {
+  fbListen('sales', data => {
+    salesData = data || {};
+    if (currentTab === 'profit') renderProfit();
+  });
+}
+
+function renderProfit() {
+  const sales = Object.entries(salesData).map(([k,v]) => ({...v, _key:k}));
+  const totalRev = sales.reduce((a,s) => a+(s.salePrice||0), 0);
+  const totalCost = sales.reduce((a,s) => a+(s.costBasis||0), 0);
+  const totalFees = sales.reduce((a,s) => a+(s.fees||0), 0);
+  const net = totalRev - totalCost - totalFees;
+  const stSales = sales.filter(s => (s.holdDays||0) < 365);
+  const ltSales = sales.filter(s => (s.holdDays||0) >= 365);
+  const stGain = stSales.reduce((a,s) => a+s.salePrice-s.costBasis-(s.fees||0), 0);
+  const ltGain = ltSales.reduce((a,s) => a+s.salePrice-s.costBasis-(s.fees||0), 0);
+
+  document.getElementById('sales-count').textContent = 'SALES (' + sales.length + ')';
+
+  document.getElementById('profit-summary').innerHTML = `
+    <div class="card ${net>=0?'green':'red'}-border" style="margin-bottom:10px">
+      <div style="font-size:9px;color:var(--accent-dim);margin-bottom:12px">REALIZED P&L</div>
+      <div class="stat-row"><span class="label">Revenue</span><span class="value">${fmt$(totalRev)}</span></div>
+      <div class="stat-row"><span class="label">Cost Basis</span><span class="value">${fmt$(totalCost)}</span></div>
+      <div class="stat-row"><span class="label">eBay Fees</span><span class="value" style="color:var(--red)">${fmt$(totalFees)}</span></div>
+      <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+        <div class="stat-row"><span class="label">Net Profit</span><span class="value" style="color:${net>=0?'var(--green)':'var(--red)'}">${fmt$(net)}</span></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:10px">
+      <div style="font-size:9px;color:var(--accent-dim);margin-bottom:12px">TAX SPLIT</div>
+      <div class="grid-2" style="margin-bottom:12px">
+        <div style="background:var(--surface);border-radius:10px;padding:12px">
+          <div style="font-size:8px;color:var(--muted);margin-bottom:4px">SHORT-TERM</div>
+          <div style="font-size:15px;color:${stGain>=0?'var(--green)':'var(--red)'};font-weight:700;margin-bottom:4px">${fmt$(stGain)}</div>
+          <div style="font-size:8px;color:var(--muted)">ordinary income rate</div>
+        </div>
+        <div style="background:var(--surface);border-radius:10px;padding:12px">
+          <div style="font-size:8px;color:var(--muted);margin-bottom:4px">LONG-TERM</div>
+          <div style="font-size:15px;color:${ltGain>=0?'var(--green)':'var(--red)'};font-weight:700;margin-bottom:4px">${fmt$(ltGain)}</div>
+          <div style="font-size:8px;color:var(--muted)">collectibles rate (28%)</div>
+        </div>
+      </div>
+      <div style="background:var(--surface);border-radius:8px;padding:10px;font-size:9px;color:var(--text-dim);line-height:1.7">
+        Collectibles may be subject to 28% max cap gains rate. Consult a tax professional.
+      </div>
+    </div>`;
+
+  // Sales list
+  const sorted = sales.slice().sort((a,b) => (b.saleDate||'').localeCompare(a.saleDate||''));
+  document.getElementById('sales-list').innerHTML = sorted.map(sale => {
+    const n = sale.salePrice - sale.costBasis - (sale.fees||0);
+    const isLT = (sale.holdDays||0) >= 365;
+    const catColor = sale.category === 'pokemon' ? 'var(--pokemon)' : 'var(--sports)';
+    return `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="flex:1;margin-right:10px">
+            <div style="font-size:11px;color:var(--text);margin-bottom:6px;line-height:1.4">${esc(sale.itemName)}</div>
+            <div style="display:flex;gap:5px">
+              ${tag(catColor, sale.category==='pokemon'?'PKM':'SPT')}
+              ${tag(isLT?'var(--green)':'var(--accent)', isLT?'LONG-TERM':'SHORT-TERM')}
+              ${sale.source==='ebay' ? tag('var(--ebay)', 'eBay') : ''}
+            </div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:14px;color:${n>=0?'var(--green)':'var(--red)'};font-weight:700">${(n>=0?'+':'')+fmt$(n)}</div>
+            <div style="font-size:10px;color:var(--text-dim)">${esc(sale.saleDate||'')}</div>
+          </div>
+        </div>
+        <div class="grid-3" style="margin-top:10px">
+          ${[['COST',fmt$(sale.costBasis),'var(--text-dim)'],['SOLD',fmt$(sale.salePrice),'var(--text)'],['FEES',fmt$(sale.fees||0),'var(--red)']].map(([l,v,c])=>`
+            <div style="background:var(--surface);border-radius:6px;padding:6px 8px">
+              <div style="font-size:8px;color:var(--muted)">${l}</div>
+              <div style="font-size:11px;color:${c}">${v}</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function showSaleForm() {
+  const el = document.getElementById('sale-form');
+  el.innerHTML = `
+    <div style="font-size:9px;color:var(--accent-dim);margin-bottom:12px">LOG A SALE</div>
+    <div class="field"><label>ITEM NAME</label><input type="text" id="sf-name"></div>
+    <div class="grid-2">
+      <div class="field"><label>COST $</label><input type="number" id="sf-cost"></div>
+      <div class="field"><label>SALE PRICE $</label><input type="number" id="sf-price"></div>
+      <div class="field"><label>FEES $</label><input type="number" id="sf-fees"></div>
+      <div class="field"><label>HOLD DAYS</label><input type="number" id="sf-days"></div>
+    </div>
+    <div class="field"><label>SALE DATE</label><input type="date" id="sf-date" value="${today()}"></div>
+    <div class="grid-2">
+      <div class="field"><label>CATEGORY</label>
+        <select id="sf-cat"><option value="pokemon">Pokemon</option><option value="sports">Sports</option><option value="other">Other</option></select>
+      </div>
+      <div class="field"><label>GRADED?</label>
+        <select id="sf-graded"><option value="false">Raw</option><option value="true">Graded</option></select>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn primary small" style="flex:1" onclick="saveSaleForm()">SAVE SALE</button>
+      <button class="btn ghost small" onclick="document.getElementById('sale-form').classList.add('hidden')">Cancel</button>
+    </div>`;
+  el.classList.remove('hidden');
+}
+
+async function saveSaleForm() {
+  const name = document.getElementById('sf-name').value.trim();
+  if (!name) { toast('Enter item name', 'warn'); return; }
+  const sale = {
+    id: uid(), itemName: name,
+    category: document.getElementById('sf-cat').value,
+    graded: document.getElementById('sf-graded').value === 'true',
+    costBasis: parseFloat(document.getElementById('sf-cost').value) || 0,
+    salePrice: parseFloat(document.getElementById('sf-price').value) || 0,
+    fees: parseFloat(document.getElementById('sf-fees').value) || 0,
+    holdDays: parseInt(document.getElementById('sf-days').value) || 0,
+    saleDate: document.getElementById('sf-date').value,
+    source: 'manual'
+  };
+  await fbPush('sales', sale);
+  document.getElementById('sale-form').classList.add('hidden');
+  toast('Sale logged', 'success');
+}
+
+function exportCSV() {
+  const sales = Object.values(salesData);
+  const rows = sales.map(s => {
+    const n = s.salePrice - s.costBasis - (s.fees||0);
+    return [s.itemName, s.category, s.grade||'Raw', s.costBasis, s.salePrice, s.fees||0,
+      n.toFixed(2), s.saleDate, s.holdDays||0, (s.holdDays||0)>=365?'Long':'Short'].join(',');
+  });
+  const csv = 'Item,Category,Grade,Cost,Sale,Fees,Net,Date,Days,Term\n' + rows.join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = 'card-sales.csv';
+  a.click();
+  toast('CSV downloaded', 'success');
+}
+
+// ─── SETTINGS ─────────────────────────────────────────────────────────────
+function renderSettings() {
+  const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
+  const connected = !!settings.userToken;
+
+  document.getElementById('settings-content').innerHTML = `
+    <div class="card ${connected?'green':'red'}-border">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:9px;color:var(--accent-dim)">EBAY CONNECTION</div>
+        ${tag(connected?'var(--green)':'var(--red)', connected?'CONNECTED':'NOT CONNECTED')}
+      </div>
+      <div style="font-size:10px;color:var(--text-dim)">${connected ? 'Token: ...' + settings.userToken.slice(-12) + ' · ' + (settings.sandbox?'Sandbox':'Production') : 'Add your eBay User Access Token to enable listing sync.'}</div>
+    </div>
+
+    <div class="card blue-border">
+      <div style="font-size:9px;color:var(--blue);margin-bottom:10px">HOW TO GET YOUR TOKEN</div>
+      <div style="font-size:10px;color:var(--text-dim);line-height:1.9">
+        1. Go to developer.ebay.com<br>
+        2. Sign in with your seller account<br>
+        3. Application Keys → User Tokens (Production)<br>
+        4. Sign in to Production → copy token<br>
+        <span style="color:var(--text)">Tokens expire after 2 hours — regenerate as needed</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:9px;color:var(--accent-dim);margin-bottom:12px">EBAY USER ACCESS TOKEN</div>
+      <div class="field">
+        <label>TOKEN</label>
+        <textarea id="st-token" rows="3" placeholder="v^1.1#i^1#r^1...">${esc(settings.userToken||'')}</textarea>
+      </div>
+      <div style="margin-bottom:14px">
+        <div style="font-size:9px;color:var(--text-dim);margin-bottom:8px">ENVIRONMENT</div>
+        <div style="display:flex;gap:8px">
+          <button onclick="setEnv(false)" style="flex:1;padding:8px;border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:10px;border:1px solid ${!settings.sandbox?'var(--accent)':'var(--border)'};background:${!settings.sandbox?'rgba(240,192,64,0.1)':'transparent'};color:${!settings.sandbox?'var(--accent)':'var(--text-dim)'}">Production</button>
+          <button onclick="setEnv(true)" style="flex:1;padding:8px;border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:10px;border:1px solid ${settings.sandbox?'var(--accent)':'var(--border)'};background:${settings.sandbox?'rgba(240,192,64,0.1)':'transparent'};color:${settings.sandbox?'var(--accent)':'var(--text-dim)'}">Sandbox</button>
+        </div>
+      </div>
+      <div id="test-result" style="margin-bottom:12px"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn primary small" style="flex:1" onclick="saveEbayToken()">SAVE TOKEN</button>
+        <button class="btn blue small" onclick="testEbayToken()">Test</button>
+        ${connected ? '<button class="btn danger small" onclick="disconnectEbay()">Disconnect</button>' : ''}
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:9px;color:var(--accent-dim);margin-bottom:8px">FIREBASE</div>
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px">${esc(FIREBASE_URL)}</div>
+      <button class="btn ghost small" onclick="localStorage.removeItem('ct_firebase_url');location.reload()">Change Database</button>
+    </div>`;
+}
+
+function setEnv(sandbox) {
+  const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
+  settings.sandbox = sandbox;
+  localStorage.setItem('ct_ebay_settings', JSON.stringify(settings));
+  renderSettings();
+}
+
+function saveEbayToken() {
+  const token = document.getElementById('st-token').value.trim();
+  const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
+  settings.userToken = token;
+  localStorage.setItem('ct_ebay_settings', JSON.stringify(settings));
+  toast('Token saved', 'success');
+  renderSettings();
+}
+
+async function testEbayToken() {
+  const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
+  if (!settings.userToken) { toast('Enter a token first', 'warn'); return; }
+  const el = document.getElementById('test-result');
+  el.innerHTML = '<div style="font-size:10px;color:var(--text-dim)">Testing...</div>';
+  try {
+    const resp = await ebayFetch('/sell/account/v1/fulfillment_policy?marketplace_id=EBAY_US', settings.userToken);
+    if (resp.ok) {
+      el.innerHTML = '<div style="font-size:10px;color:var(--green);background:rgba(52,214,121,0.1);border:1px solid rgba(52,214,121,0.3);border-radius:8px;padding:8px 12px">✓ Token valid — eBay connected</div>';
+    } else {
+      const err = await resp.json().catch(() => ({}));
+      el.innerHTML = '<div style="font-size:10px;color:var(--red);background:rgba(255,79,79,0.1);border:1px solid rgba(255,79,79,0.3);border-radius:8px;padding:8px 12px">✗ ' + (err.errors&&err.errors[0]&&err.errors[0].message || 'Token invalid: ' + resp.status) + '</div>';
+    }
+  } catch(e) {
+    el.innerHTML = '<div style="font-size:10px;color:var(--red);background:rgba(255,79,79,0.1);border:1px solid rgba(255,79,79,0.3);border-radius:8px;padding:8px 12px">✗ ' + e.message + '</div>';
+  }
+}
+
+function disconnectEbay() {
+  const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
+  delete settings.userToken;
+  localStorage.setItem('ct_ebay_settings', JSON.stringify(settings));
+  toast('Disconnected', 'success');
+  renderSettings();
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────
+if (!loadConfig()) {
+  // Show config screen
+  document.getElementById('config-screen').classList.remove('hidden');
+}
+
+// Start listeners once Firebase is ready
+window._listenersStarted = false;
+const _origInitApp = initApp;
+initApp = function(fbUrl, proxyUrl) {
+  _origInitApp(fbUrl, proxyUrl);
+  if (!window._listenersStarted) {
+    window._listenersStarted = true;
+    startCollectionListener();
+    startSalesListener();
+  }
+};
+
+// If already configured, start listeners
+if (window._listenersStarted === false && db) {
+  window._listenersStarted = true;
+  startCollectionListener();
+  startSalesListener();
+}
+</script>
+</body>
+</html>
