@@ -385,6 +385,24 @@ function saveConfig() {
 }
 
 function loadConfig() {
+  // Check if returning from eBay OAuth callback (token in URL hash)
+  const hash = window.location.hash;
+  if (hash && hash.includes('ebay_token=')) {
+    const params = new URLSearchParams(hash.slice(1));
+    const token = params.get('ebay_token');
+    const refresh = params.get('ebay_refresh');
+    const expiry = params.get('ebay_expiry');
+    if (token) {
+      const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
+      settings.userToken = token;
+      if (refresh) settings.refreshToken = refresh;
+      if (expiry) settings.tokenExpiry = expiry;
+      localStorage.setItem('ct_ebay_settings', JSON.stringify(settings));
+      // Clean URL
+      history.replaceState(null, '', window.location.pathname);
+    }
+  }
+
   const fbUrl = localStorage.getItem('ct_firebase_url');
   const proxyUrl = localStorage.getItem('ct_proxy_url') || 'https://ebay-companion-proxy.christopher-a-daggett.workers.dev';
   if (fbUrl) { initApp(fbUrl, proxyUrl); return true; }
@@ -500,17 +518,39 @@ async function bulkLookup(lines) {
   return JSON.parse(text.replace(/```json|```/g,'').trim());
 }
 
-function ebayFetch(path, token, method, body) {
+async function getValidEbayToken() {
   const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
-  const base = settings.sandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
-  const targetUrl = base + path;
+  if (!settings.userToken) return null;
+  // Check if token is expired or about to expire (within 5 min)
+  const expiry = parseInt(settings.tokenExpiry || 0);
+  if (expiry && Date.now() > expiry - 300000) {
+    // Try to refresh
+    if (settings.refreshToken) {
+      try {
+        const resp = await fetch(EBAY_PROXY + '/ebay-refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: settings.refreshToken })
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          settings.userToken = data.access_token;
+          settings.tokenExpiry = String(data.expiry);
+          localStorage.setItem('ct_ebay_settings', JSON.stringify(settings));
+          return data.access_token;
+        }
+      } catch(e) { console.warn('Token refresh failed:', e); }
+    }
+  }
+  return settings.userToken;
+}
+
+async function ebayFetch(path, method, body) {
+  // Token managed by Cloudflare Worker - no need to pass it
+  const targetUrl = 'https://api.ebay.com' + path;
   return fetch(EBAY_PROXY + '/proxy?url=' + encodeURIComponent(targetUrl), {
     method: method || 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + token,
-      'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US'
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined
   });
 }
@@ -951,7 +991,7 @@ async function syncEbay() {
   if (!settings.userToken) { toast('Add eBay token in Settings first', 'warn'); switchTab('settings'); return; }
   document.getElementById('sync-spinner').innerHTML = '<span class="spinner">⟳</span> ';
   try {
-    const resp = await ebayFetch('/sell/inventory/v1/offer?marketplace_id=EBAY_US&limit=100', settings.userToken);
+    const resp = await ebayFetch('/sell/inventory/v1/offer?marketplace_id=EBAY_US&limit=100');
     if (!resp.ok) {
       const errBody = await resp.text();
       throw new Error('eBay ' + resp.status + ': ' + errBody.slice(0, 300));
@@ -1169,6 +1209,10 @@ function exportCSV() {
 }
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────
+function connectEbayOAuth() {
+  window.location.href = EBAY_PROXY + '/ebay-connect';
+}
+
 function renderSettings() {
   const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
   const connected = !!settings.userToken;
@@ -1194,25 +1238,21 @@ function renderSettings() {
     </div>
 
     <div class="card">
-      <div style="font-size:9px;color:var(--accent-dim);margin-bottom:12px">EBAY USER ACCESS TOKEN</div>
-      <div class="field">
-        <label>TOKEN</label>
-        <textarea id="st-token" rows="3" placeholder="v^1.1#i^1#r^1...">${esc(settings.userToken||'')}</textarea>
-      </div>
-      <div style="margin-bottom:14px">
-        <div style="font-size:9px;color:var(--text-dim);margin-bottom:8px">ENVIRONMENT</div>
-        <div style="display:flex;gap:8px">
-          <button onclick="setEnv(false)" style="flex:1;padding:8px;border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:10px;border:1px solid ${!settings.sandbox?'var(--accent)':'var(--border)'};background:${!settings.sandbox?'rgba(240,192,64,0.1)':'transparent'};color:${!settings.sandbox?'var(--accent)':'var(--text-dim)'}">Production</button>
-          <button onclick="setEnv(true)" style="flex:1;padding:8px;border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:10px;border:1px solid ${settings.sandbox?'var(--accent)':'var(--border)'};background:${settings.sandbox?'rgba(240,192,64,0.1)':'transparent'};color:${settings.sandbox?'var(--accent)':'var(--text-dim)'}">Sandbox</button>
-        </div>
-      </div>
+      <div style="font-size:9px;color:var(--accent-dim);margin-bottom:12px">EBAY ACCOUNT</div>
       <div id="test-result" style="margin-bottom:12px"></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn primary small" style="flex:1" onclick="saveEbayToken()">SAVE TOKEN</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a href="${EBAY_PROXY}/ebay-connect" class="btn ebay" style="flex:1;text-decoration:none;justify-content:center;display:flex;align-items:center">
+          ${connected ? '↻ Reconnect eBay' : '▶ Connect eBay'}
+        </a>
         <button class="btn blue small" onclick="testEbayToken()">Test</button>
         ${connected ? '<button class="btn danger small" onclick="disconnectEbay()">Disconnect</button>' : ''}
       </div>
+      <div style="font-size:9px;color:var(--text-dim);margin-top:10px;line-height:1.8">
+        Clicking Connect eBay opens eBay login. Token is stored securely — no manual copying needed.
+      </div>
     </div>
+
+  </div>
 
     <div class="card">
       <div style="font-size:9px;color:var(--accent-dim);margin-bottom:8px">FIREBASE</div>
@@ -1238,32 +1278,43 @@ function saveEbayToken() {
 }
 
 async function testEbayToken() {
-  const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
-  if (!settings.userToken) { toast('Enter a token first', 'warn'); return; }
   const el = document.getElementById('test-result');
   el.innerHTML = '<div style="font-size:10px;color:var(--text-dim)">Testing...</div>';
   try {
-    const resp = await ebayFetch('/commerce/identity/v1/user/', settings.userToken);
-    const body = await resp.text();
-    if (resp.ok) {
-      el.innerHTML = '<div style="font-size:10px;color:var(--green);background:rgba(52,214,121,0.1);border:1px solid rgba(52,214,121,0.3);border-radius:8px;padding:8px 12px">✓ Token valid — eBay connected</div>';
+    const resp = await fetch(EBAY_PROXY + '/ebay-status');
+    const data = await resp.json();
+    if (data.connected) {
+      el.innerHTML = '<div style="font-size:10px;color:var(--green);background:rgba(52,214,121,0.1);border:1px solid rgba(52,214,121,0.3);border-radius:8px;padding:8px 12px">✓ eBay connected</div>';
     } else {
-      el.innerHTML = '<div style="font-size:10px;color:var(--red);background:rgba(255,79,79,0.1);border:1px solid rgba(255,79,79,0.3);border-radius:8px;padding:8px 12px">✗ HTTP ' + resp.status + ': ' + body.slice(0, 300) + '</div>';
+      el.innerHTML = '<div style="font-size:10px;color:var(--orange);background:rgba(255,140,66,0.1);border:1px solid rgba(255,140,66,0.3);border-radius:8px;padding:8px 12px">Not connected — click Connect eBay below</div>';
     }
   } catch(e) {
     el.innerHTML = '<div style="font-size:10px;color:var(--red);background:rgba(255,79,79,0.1);border:1px solid rgba(255,79,79,0.3);border-radius:8px;padding:8px 12px">✗ ' + e.message + '</div>';
   }
 }
 
-function disconnectEbay() {
-  const settings = JSON.parse(localStorage.getItem('ct_ebay_settings') || '{}');
-  delete settings.userToken;
-  localStorage.setItem('ct_ebay_settings', JSON.stringify(settings));
-  toast('Disconnected', 'success');
-  renderSettings();
+async function disconnectEbay() {
+  try {
+    await fetch(EBAY_PROXY + '/ebay-disconnect', { method: 'POST' });
+    toast('Disconnected from eBay', 'success');
+    renderSettings();
+  } catch(e) {
+    toast('Disconnect failed: ' + e.message, 'error');
+  }
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────
+// Handle eBay OAuth callback redirect
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('ebay_connected') === 'true') {
+  toast('eBay connected successfully!', 'success');
+  history.replaceState({}, '', window.location.pathname);
+}
+if (urlParams.get('ebay_error')) {
+  toast('eBay connection failed: ' + urlParams.get('ebay_error'), 'error');
+  history.replaceState({}, '', window.location.pathname);
+}
+
 if (!loadConfig()) {
   // Show config screen
   document.getElementById('config-screen').classList.remove('hidden');
